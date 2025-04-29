@@ -1,6 +1,6 @@
 # Custom docker image to run `ollama` behind authentication proxy
 
-Image available at [docker hub](https://hub.docker.com/repository/docker/brilliantcreator/ollama-authentication-proxy).
+Image for amd64/arm64 available at [docker hub](https://hub.docker.com/repository/docker/brilliantcreator/ollama-authentication-proxy).
 
 Based on the original ollama docker image.
 
