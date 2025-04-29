@@ -21,9 +21,9 @@ The container will use the following ports:
 ```mermaid
 sequenceDiagram
     actor user
-    Note over user,nginx: Access ollama API using<br>"Authorization Bearer <APIKEY>"
+    Note over user,nginx: Access ollama API using header<br>"Authorization: Bearer <APIKEY>"
     user ->> nginx: GET /api/tags
-    Note over nginx, authorization-bearer: validate with<br>"Authorization Bearer <APIKEY>"
+    Note over nginx, authorization-bearer: validate with header<br>"Authorization: Bearer <APIKEY>"
     nginx ->>+ authorization-bearer: GET /auth
     authorization-bearer ->>- nginx: OK
     Note over nginx, ollama: Forward the request
