@@ -1,0 +1,3 @@
+#!/usr/bin/sh
+echo Running ollama with API-KEY authorization...
+exec supervisord -c /etc/supervisor/supervisord.conf
