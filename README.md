@@ -6,7 +6,7 @@ Based on the original ollama docker image.
 
 Using custom tool `authorization-bearer` to authenticate incoming requests for ollama
 via a NGINX hook.
-Request must provide header `Authorization Bearer <APIKEY>` to access the ollama API.
+Request must provide header `Authorization: Bearer <APIKEY>` to access the ollama API.
 
 Multiple API-Keys can be provided via environment variables like
 - AUTHORIZATION_APIKEY=foo
