@@ -2,11 +2,12 @@
 
 Image for amd64/arm64 available at [docker hub](https://hub.docker.com/repository/docker/brilliantcreator/ollama-authentication-proxy).
 
-Based on the original ollama docker image.
+Based on the original [ollama](https://hub.docker.com/r/ollama/ollama) docker image.
 
-Using custom tool `authorization-bearer` to authenticate incoming requests for ollama
-via a NGINX hook.
-Request must provide header `Authorization: Bearer <APIKEY>` to access the ollama API.
+Using custom tool `authorization-bearer` to authenticate incoming requests
+for `ollama` via a `nginx` reverse-proxy hook.
+
+Requests must provide header `Authorization: Bearer <APIKEY>` to access the `ollama` API.
 
 Multiple API-Keys can be provided via environment variables like
 - AUTHORIZATION_APIKEY=foo
