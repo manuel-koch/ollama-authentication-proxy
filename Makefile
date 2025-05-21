@@ -55,6 +55,7 @@ build-image-arm64:: build-image
 run-image::
 	docker run --rm \
            --name $(CONTAINER_NAME) \
+           -v $(THIS_DIR)/ollama:/root/.ollama \
            -p $(LOCAL_PORT):18434 \
            -e "AUTHORIZATION_APIKEY=my-private-api-key" \
            -e OLLAMA_HOST=0.0.0.0:11434 \
@@ -63,6 +64,7 @@ run-image::
 run-image-interactive::
 	docker run -it --rm \
            --name $(CONTAINER_NAME) \
+           -v $(THIS_DIR)/ollama:/root/.ollama \
            -p $(LOCAL_PORT):18434 \
            -e "AUTHORIZATION_APIKEY=my-private-api-key" \
            -e OLLAMA_HOST=0.0.0.0:11434 \
