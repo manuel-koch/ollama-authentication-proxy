@@ -1,7 +1,9 @@
 THIS_DIR                := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 IMAGE_REPO              := brilliantcreator
 IMAGE_NAME              := ollama-authentication-proxy
-IMAGE_TAG               := $(shell grep "FROM ollama/ollama:" Dockerfile | cut -d":" -f2)
+IMAGE_GOLANG_VERSION    := 1.24.3
+IMAGE_OLLAMA_VERSION    := 0.6.6
+IMAGE_TAG               := $(IMAGE_OLLAMA_VERSION)
 IMAGE_TAGGED            := $(IMAGE_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
 IMAGE_LATEST            := $(IMAGE_REPO)/$(IMAGE_NAME):latest
 DOCKER_BUILDX_DRIVER    := docker-container
@@ -10,11 +12,11 @@ DOCKER_BUILDX_PLATFORMS := linux/arm64,linux/amd64
 CONTAINER_NAME          := ollama-authentication-proxy
 LOCAL_PORT              := 18434
 
-authorization-bearer: authorization-bearer.go
-	go build -gcflags="-N -l" authorization-bearer.go
+ollama-authentication-proxy: *.go go.mod
+	go build -gcflags="-N -l" .
 
-debug-authorization-bearer:: authorization-bearer
-	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec authorization-bearer
+debug-ollama-authentication-proxy:: ollama-authentication-proxy
+	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ollama-authentication-proxy
 
 # To build a multi platform/architecture docker image, you need to setup a builder context:
 # See https://docs.docker.com/build/building/multi-platform/
@@ -39,9 +41,16 @@ build-image:: create_pipeline_builder_context
            --output=type=image \
            --progress plain \
            $(shell $(PUSH_IMAGE) && echo --push) \
+    	   --build-arg GOLANG_VERSION=$(IMAGE_GOLANG_VERSION) \
+    	   --build-arg OLLAMA_VERSION=$(IMAGE_OLLAMA_VERSION) \
     	   -t $(IMAGE_TAGGED) \
     	   -t $(IMAGE_LATEST) \
     	   -f $(THIS_DIR)/Dockerfile .
+
+# build docker image for arm64 and load it into local docker-context
+build-image-arm64:: LOAD_IMAGE=true
+build-image-arm64:: DOCKER_BUILDX_PLATFORMS=linux/arm64
+build-image-arm64:: build-image
 
 run-image::
 	docker run --rm \
