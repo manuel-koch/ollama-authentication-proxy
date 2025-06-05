@@ -2,8 +2,9 @@ THIS_DIR                := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIS
 IMAGE_REPO              := brilliantcreator
 IMAGE_NAME              := ollama-authentication-proxy
 IMAGE_GOLANG_VERSION    := 1.24.3
-IMAGE_OLLAMA_VERSION    := 0.7.0
-IMAGE_TAG               := $(IMAGE_OLLAMA_VERSION)
+IMAGE_OLLAMA_VERSION    := 0.9.0
+IMAGE_TAG_POSTFIX       := 20250605
+IMAGE_TAG               := $(IMAGE_OLLAMA_VERSION)_$(IMAGE_TAG_POSTFIX)
 IMAGE_TAGGED            := $(IMAGE_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
 IMAGE_LATEST            := $(IMAGE_REPO)/$(IMAGE_NAME):latest
 DOCKER_BUILDX_DRIVER    := docker-container
@@ -43,6 +44,9 @@ build-image:: create_pipeline_builder_context
            $(shell $(PUSH_IMAGE) && echo --push) \
     	   --build-arg GOLANG_VERSION=$(IMAGE_GOLANG_VERSION) \
     	   --build-arg OLLAMA_VERSION=$(IMAGE_OLLAMA_VERSION) \
+           --label org.opencontainers.image.title="ollama-authentication-proxy" \
+           --label org.opencontainers.image.description="Ollama ($(IMAGE_OLLAMA_VERSION)) behind authentication proxy" \
+           --label org.opencontainers.image.documentation="https://github.com/manuel-koch/ollama-authentication-proxy" \
     	   -t $(IMAGE_TAGGED) \
     	   -t $(IMAGE_LATEST) \
     	   -f $(THIS_DIR)/Dockerfile .
@@ -51,6 +55,7 @@ build-image:: create_pipeline_builder_context
 build-image-arm64:: LOAD_IMAGE=true
 build-image-arm64:: DOCKER_BUILDX_PLATFORMS=linux/arm64
 build-image-arm64:: build-image
+	docker inspect --format='{{json .Config.Labels}}' $(IMAGE_TAGGED)
 
 run-image::
 	docker run --rm \
