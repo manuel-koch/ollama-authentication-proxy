@@ -13,10 +13,12 @@ type Server struct {
 	http.Server
 }
 
-func NewServer(ctx context.Context, host string, port int, handler func(http.ResponseWriter, *http.Request)) *Server {
+func NewServer(ctx context.Context, host string, port int, handlerFuncs map[string]func(http.ResponseWriter, *http.Request)) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", handler)
+	for pattern, handler := range handlerFuncs {
+		mux.HandleFunc(pattern, handler)
+	}
 	return &Server{
 		http.Server{
 			Addr:    addr,

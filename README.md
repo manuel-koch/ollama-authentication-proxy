@@ -14,9 +14,17 @@ Multiple API-Keys can be provided via environment variables like
 - AUTHORIZATION_APIKEY_1=hello-world
 - AUTHORIZATION_APIKEY_2=my-private-api-key
 
-The container will use the following ports:
-- 18434: Tool `ollama-authentication-proxy` to validate authorization and proxy requests to ollama
-- 11434: Ollama
+The container will use the following ports by default, use env-var to change it:
+
+- 80 (`PORT`): Tool `ollama-authentication-proxy` to validate authorization and proxy requests to ollama
+- 80 (`PORT_HEALTH`): Tool will provide an endpoint at "/ping" for health-checks
+- 11434 (`OLLAMA_HOST`): Ollama
+
+To preload ollama model(s) on startup.
+Use any env-var that starts with `PRELOAD_MODEL` to include the selected model for pre-loading:
+
+- PRELOAD_MODEL=gemma3n:e4b
+- PRELOAD_MODEL_1=devstral:24b
 
 ```mermaid
 sequenceDiagram

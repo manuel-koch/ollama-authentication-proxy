@@ -1,42 +1,58 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/ollama/ollama/api"
+)
+
+type PreloadModelStatus int64
+
+const (
+	Unknown PreloadModelStatus = iota
+	InProgress
+	Preloaded
 )
 
 type ServerHandler struct {
-	apiKeys          []string
-	upstreamBaseURLs []*url.URL
+	apiKeys []string
+
+	preloadModels      []string
+	preloadModelStatus PreloadModelStatus
+
+	upstreamBaseURL *url.URL
 }
 
 // NewServerHandler will create a new server
-func NewServerHandler(apiKeys []string) *ServerHandler {
+func NewServerHandler(apiKeys []string, preloadModels []string) *ServerHandler {
 	return &ServerHandler{
-		apiKeys:          apiKeys,
-		upstreamBaseURLs: make([]*url.URL, 0),
+		apiKeys:       apiKeys,
+		preloadModels: preloadModels,
 	}
 }
 
-// AddBackend will add given backend to server
-func (s *ServerHandler) AddBackend(baseURL *url.URL) {
-	s.upstreamBaseURLs = append(s.upstreamBaseURLs, baseURL)
-	slog.Info(fmt.Sprintf("Added backend at %s", baseURL))
+// SetUpstreamURL will set base url of upstream on server
+func (s *ServerHandler) SetUpstreamURL(baseURL *url.URL) {
+	s.upstreamBaseURL = baseURL
+	slog.Info(fmt.Sprintf("Upstream at %s", baseURL))
 }
 
-// GetBackendURL will return the URL of a backend instance
-func (s *ServerHandler) GetBackendURL() *url.URL {
-	return s.upstreamBaseURLs[0]
+// GetUpstreamURL will return the URL of the upstream
+func (s *ServerHandler) GetUpstreamURL() *url.URL {
+	return s.upstreamBaseURL
 }
 
-// ServeHTTP will be called by the http server to handle a request
-func (s *ServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	backendURL := s.GetBackendURL()
+// ServeHttpProxy will be called by the http server to handle a request that should be proxied to backend
+func (s *ServerHandler) ServeHttpProxy(w http.ResponseWriter, r *http.Request) {
+	backendURL := s.GetUpstreamURL()
 	requestId := uuid.New().String()
 	logger := slog.With(
 		"requestId", requestId,
@@ -52,38 +68,147 @@ func (s *ServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ServeHttpPing will be called by the http server to handle a "ping" request, checking if upstream is running ok
+func (s *ServerHandler) ServeHttpPing(w http.ResponseWriter, r *http.Request) {
+	backendURL := s.GetUpstreamURL()
+	requestId := uuid.New().String()
+	logger := slog.With(
+		"requestId", requestId,
+		"client", r.RemoteAddr,
+		"backendURL", backendURL,
+		"method", r.Method,
+		"url", r.URL,
+		"proto", r.Proto)
+	if s.authRequestHandle(w, r) {
+		if s.isUpstreamRunning() {
+			if s.preloadModelStatus == Unknown {
+				logger.Info("Upstream available, preloading unknown")
+				w.WriteHeader(http.StatusNoContent)
+				w.Write([]byte("{\"status\": \"Model preload not started yet\"}"))
+			} else if s.preloadModelStatus == InProgress {
+				logger.Info("Upstream is available, preloading in progress")
+				w.WriteHeader(http.StatusNoContent)
+				w.Write([]byte("{\"status\": \"Model preload in progress\"}"))
+			} else if s.preloadModelStatus == Preloaded {
+				logger.Info("Upstream is available, preloading done")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("{\"status\": \"Models preloaded\"}"))
+			}
+		} else {
+			logger.Warn("Upstream is unavailable")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("{}"))
+		}
+	} else {
+		logger.Error("Unauthorized ping")
+	}
+}
+
 // authRequestHandler checks request for authorization details and
 // returns true when request is authorized.
 func (s *ServerHandler) authRequestHandle(w http.ResponseWriter, r *http.Request) bool {
-	authHeader := r.Header.Get("Authorization")
+	if s.requireApiKeyAuthorization() {
+		authHeader := r.Header.Get("Authorization")
 
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, "Unauthorized: Missing Authorization header")
-		slog.Info("Unauthorized: Missing Authorization header")
-		return false
-	}
+		if authHeader == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintln(w, "Unauthorized: Missing Authorization header")
+			slog.Info("Unauthorized: Missing Authorization header")
+			return false
+		}
 
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, "Unauthorized: Invalid Authorization header format")
-		slog.Info("Unauthorized: Invalid Authorization header format")
-		return false
-	}
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintln(w, "Unauthorized: Invalid Authorization header format")
+			slog.Info("Unauthorized: Invalid Authorization header format")
+			return false
+		}
 
-	apiKey := parts[1]
+		apiKey := parts[1]
 
-	if !s.isValidAPIKey(apiKey) {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, "Unauthorized: Invalid API key")
-		slog.Info("Unauthorized: Invalid API key")
-		return false
+		if !s.isValidAPIKey(apiKey) {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintln(w, "Unauthorized: Invalid API key")
+			slog.Info("Unauthorized: Invalid API key")
+			return false
+		}
 	}
 
 	r.Header.Del("Authorization")
 
 	return true
+}
+
+func (s *ServerHandler) isUpstreamRunning() bool {
+	if s.upstreamBaseURL == nil {
+		slog.Error("Failed to ping unknown upstream")
+		return false
+	}
+	resp, err := http.Get(s.upstreamBaseURL.String())
+	if err != nil {
+		slog.Error("Failed to ping upstream", "error", err)
+		return false
+	}
+	isSuccessStatus := resp.StatusCode/100 == 2
+	if !isSuccessStatus {
+		slog.Error("Failed to ping upstream", "status", resp.StatusCode)
+	}
+	return isSuccessStatus
+}
+
+func (s *ServerHandler) PreLoadModels(ctx context.Context) {
+	if s.upstreamBaseURL == nil {
+		slog.Error("Failed to preload models: unknown upstream")
+		return
+	}
+	for {
+		slog.Info("Waiting for upstream to be running...")
+		if s.isUpstreamRunning() {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	s.preloadModelStatus = InProgress
+
+	slog.Info(fmt.Sprintf("Loading %d models...", len(s.preloadModels)))
+	client := api.NewClient(s.upstreamBaseURL, http.DefaultClient)
+	for _, model := range s.preloadModels {
+		pullRequest := &api.PullRequest{
+			Model: model,
+		}
+		var lastTotal int64 = -1
+		var lastProgressPercentage int64 = -1
+		progressFunc := func(resp api.ProgressResponse) error {
+			if resp.Total != lastTotal {
+				lastTotal = resp.Total
+			}
+			if resp.Completed > 0 {
+				progressPercentage := int64(float64(resp.Completed) / float64(lastTotal) * 100)
+				if progressPercentage != lastProgressPercentage {
+					lastProgressPercentage = progressPercentage
+					slog.Info("Loading", "model", model, "status", resp.Status, "progressPercentage", fmt.Sprintf("%d%%", progressPercentage))
+				}
+			}
+			return nil
+		}
+		slog.Info(fmt.Sprintf("Loading model %s...", model))
+		err := client.Pull(ctx, pullRequest, progressFunc)
+		if err != nil {
+			slog.Error("Failed to pull", "model", model, "error", err)
+		} else {
+			slog.Info(fmt.Sprintf("Loaded model %s", model))
+		}
+	}
+
+	s.preloadModelStatus = Preloaded
+	slog.Info(fmt.Sprintf("Loaded %d models...", len(s.preloadModels)))
+}
+
+// requireApiKeyAuthorization checks if authentication with API key is required.
+func (s *ServerHandler) requireApiKeyAuthorization() bool {
+	return len(s.apiKeys) > 0
 }
 
 // isValidAPIKey checks if the provided API key is valid.

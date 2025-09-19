@@ -1,5 +1,7 @@
-// A helper tool to be used by nginx to authenticate incoming request
+// A reverse-proxy written in golang that authenticates incoming request
 // via "Bearer" token/apikey before the traffic gets forwarded to ollama.
+// It will trigger loading selected ollama models on startup.
+// It provides a "/ping" endpoint to health-check ollama.
 
 package main
 
@@ -8,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -54,13 +57,21 @@ func getHost() string {
 	if envHost, found := os.LookupEnv("AUTHORIZATION_HOST"); found {
 		host = strings.TrimSpace(envHost)
 	}
+	if envHost, found := os.LookupEnv("HOST"); found {
+		host = strings.TrimSpace(envHost)
+	}
 	return host
 }
 
 // getPort returns the port to bind to
 func getPort() int {
-	var port = 18434
+	var port = 80
 	if envPort, found := os.LookupEnv("AUTHORIZATION_PORT"); found {
+		if p, err := strconv.Atoi(envPort); err == nil && p != 0 {
+			port = p
+		}
+	}
+	if envPort, found := os.LookupEnv("PORT"); found {
 		if p, err := strconv.Atoi(envPort); err == nil && p != 0 {
 			port = p
 		}
@@ -68,11 +79,28 @@ func getPort() int {
 	return port
 }
 
-// getOllamaHost returns the hostname to bind to
-func getOllamaHost() string {
+// getPortHealth returns the port to bind "/ping" endpoint to
+func getPortHealth() int {
+	var port = 80
+	if envPort, found := os.LookupEnv("PORT_HEALTH"); found {
+		if p, err := strconv.Atoi(envPort); err == nil && p != 0 {
+			port = p
+		}
+	}
+	return port
+}
+
+// getOllamaHostPort returns the hostname and port of running ollama instance
+func getOllamaHostPort() string {
 	var host = "localhost:11434"
 	if envHost, found := os.LookupEnv("OLLAMA_HOST"); found {
-		host = strings.TrimSpace(envHost)
+		if strings.Contains(envHost, ":") {
+			host = strings.TrimSpace(envHost)
+		} else {
+			slog.Debug("OLLAMA_HOST environment variable doesn't contain a port, using default host")
+		}
+	} else {
+		slog.Debug("OLLAMA_HOST environment variable not set, using default host")
 	}
 	return host
 }
@@ -90,6 +118,21 @@ func getApiKeys() []string {
 	}
 	slog.Info(fmt.Sprintf("Using %d API keys", len(apiKeys)))
 	return apiKeys
+}
+
+// getPreloadModels extracts models names to be pre-loaded on startup from environment variable(s)
+func getPreloadModels() []string {
+	models := make([]string, 0)
+	for _, envVar := range os.Environ() {
+		if strings.HasPrefix(envVar, "PRELOAD_MODEL") {
+			model := strings.TrimSpace(strings.SplitN(envVar, "=", 2)[1])
+			if len(model) > 0 {
+				models = append(models, model)
+			}
+		}
+	}
+	slog.Info(fmt.Sprintf("Using %d preload models", len(models)))
+	return models
 }
 
 func initLogging(level slog.Level, logJson bool) {
@@ -119,18 +162,36 @@ func main() {
 
 	var host = getHost()
 	var port = getPort()
+	var portHealth = getPortHealth()
 	var apiKeys = getApiKeys()
+	var preloadModels = getPreloadModels()
 
-	backendURL, err := url.Parse(fmt.Sprintf("http://%s", getOllamaHost()))
+	ctx, cancelCtx := context.WithCancel(context.Background())
+
+	backendURL, err := url.Parse(fmt.Sprintf("http://%s", getOllamaHostPort()))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	serverHandler := NewServerHandler(apiKeys)
-	serverHandler.AddBackend(backendURL)
+	serverHandler := NewServerHandler(apiKeys, preloadModels)
+	serverHandler.SetUpstreamURL(backendURL)
 
-	ctx, cancelCtx := context.WithCancel(context.Background())
-	server := NewServer(ctx, host, port, serverHandler.ServeHTTP)
+	serverHandlerFuncs := make(map[string]func(http.ResponseWriter, *http.Request))
+	serverHandlerFuncs["/"] = serverHandler.ServeHttpProxy
+
+	var serverPing *Server = nil
+	if port != portHealth {
+		pingFuncs := make(map[string]func(http.ResponseWriter, *http.Request))
+		pingFuncs["/ping"] = serverHandler.ServeHttpPing
+		serverPing = NewServer(ctx, host, portHealth, pingFuncs)
+		go serverPing.Run()
+		pingUrl := fmt.Sprintf("http://%s", serverPing.Addr)
+		slog.Info(fmt.Sprintf("Ping listening at %s", pingUrl))
+	} else {
+		serverHandlerFuncs["/ping"] = serverHandler.ServeHttpPing
+	}
+
+	server := NewServer(ctx, host, port, serverHandlerFuncs)
 	go server.Run()
 	serverUrl := fmt.Sprintf("http://%s", server.Addr)
 	slog.Info(fmt.Sprintf("Authenticating proxy listening at %s", serverUrl))
@@ -144,10 +205,21 @@ func main() {
 		done <- true
 	}()
 
-	// block until we receive the "done" via a channel
+	go serverHandler.PreLoadModels(ctx)
+
+	// block until we receive the "done" via channel
 	<-done
 	cancelCtx()
-	if shutdownErr := server.Shutdown(ctx); shutdownErr != nil {
+
+	if serverPing != nil {
+		slog.Info("Shutdown ping server")
+		if shutdownErr := serverPing.Shutdown(context.Background()); shutdownErr != nil {
+			slog.Error("Failed to shutdown ping server", "error", shutdownErr)
+			return
+		}
+	}
+	slog.Info("Shutdown server")
+	if shutdownErr := server.Shutdown(context.Background()); shutdownErr != nil {
 		slog.Error("Failed to shutdown server", "error", shutdownErr)
 		return
 	}

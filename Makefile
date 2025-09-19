@@ -1,9 +1,9 @@
 THIS_DIR                := $(realpath $(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 IMAGE_REPO              := brilliantcreator
 IMAGE_NAME              := ollama-authentication-proxy
-IMAGE_GOLANG_VERSION    := 1.24.3
-IMAGE_OLLAMA_VERSION    := 0.9.0
-IMAGE_TAG_POSTFIX       := 20250605
+IMAGE_GOLANG_VERSION    := 1.25.1
+IMAGE_OLLAMA_VERSION    := 0.12.0
+IMAGE_TAG_POSTFIX       := 20250919
 IMAGE_TAG               := $(IMAGE_OLLAMA_VERSION)_$(IMAGE_TAG_POSTFIX)
 IMAGE_TAGGED            := $(IMAGE_REPO)/$(IMAGE_NAME):$(IMAGE_TAG)
 IMAGE_LATEST            := $(IMAGE_REPO)/$(IMAGE_NAME):latest
@@ -61,18 +61,20 @@ run-image::
 	docker run --rm \
            --name $(CONTAINER_NAME) \
            -v $(THIS_DIR)/ollama:/root/.ollama \
-           -p $(LOCAL_PORT):18434 \
+           -p $(LOCAL_PORT):80 \
            -e "AUTHORIZATION_APIKEY=my-private-api-key" \
-           -e OLLAMA_HOST=0.0.0.0:11434 \
+           -e "PRELOAD_MODEL=qwen3:0.6b" \
+           -e "OLLAMA_HOST=127.0.0.1:11434" \
            $(IMAGE_TAGGED)
 
 run-image-interactive::
 	docker run -it --rm \
            --name $(CONTAINER_NAME) \
            -v $(THIS_DIR)/ollama:/root/.ollama \
-           -p $(LOCAL_PORT):18434 \
+           -p $(LOCAL_PORT):80 \
            -e "AUTHORIZATION_APIKEY=my-private-api-key" \
-           -e OLLAMA_HOST=0.0.0.0:11434 \
+           -e "PRELOAD_MODEL=qwen3:0.6b" \
+           -e "OLLAMA_HOST=127.0.0.1:11434" \
            --entrypoint "sh" \
            $(IMAGE_TAGGED) \
            -i
