@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/ollama/ollama v0.12.0
+	github.com/ollama/ollama v0.12.3
 )
 
 require (
