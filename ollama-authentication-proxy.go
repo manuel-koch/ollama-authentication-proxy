@@ -20,8 +20,6 @@ import (
 	"syscall"
 )
 
-var logger *log.Logger
-
 // getLogLevel returns a log level
 func getLogLevel() slog.Level {
 	if envLevel, found := os.LookupEnv("AUTHORIZATION_LOG_LEVEL"); found {

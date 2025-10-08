@@ -97,15 +97,16 @@ func (s *ServerHandler) ServeHttpPing(w http.ResponseWriter, r *http.Request) {
 		"proto", r.Proto)
 	if s.authRequestHandle(w, r) {
 		if s.isUpstreamRunning() {
-			if s.preloadModelStatus == Unknown {
+			switch s.preloadModelStatus {
+			case Unknown:
 				logger.Info("Upstream available, preloading unknown")
 				w.WriteHeader(http.StatusNoContent)
 				w.Write([]byte("{\"status\": \"Model preload not started yet\"}"))
-			} else if s.preloadModelStatus == InProgress {
+			case InProgress:
 				logger.Info("Upstream is available, preloading in progress")
 				w.WriteHeader(http.StatusNoContent)
 				w.Write([]byte("{\"status\": \"Model preload in progress\"}"))
-			} else if s.preloadModelStatus == Preloaded {
+			case Preloaded:
 				logger.Info("Upstream is available, preloading done")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("{\"status\": \"Models preloaded\"}"))
