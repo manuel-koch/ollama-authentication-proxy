@@ -135,6 +135,30 @@ func getPreloadModels() []string {
 	return models
 }
 
+// getUserModelMetricsWebhookUrl returns the URL of a webhook that will receive user model metrics
+func getUserModelMetricsWebhookUrl() string {
+	var url = ""
+	if envUrl, found := os.LookupEnv("USER_MODEL_METRICS_WEBHOOK_URL"); found {
+		url = strings.TrimSpace(envUrl)
+	}
+	if len(url) > 0 {
+		slog.Info(fmt.Sprintf("Using user model metrics webhook url %s", url))
+	}
+	return url
+}
+
+// getUserModelMetricsWebhookUrl returns the URL of a webhook that will receive user model metrics
+func getUserModelMetricsWebhookApiKey() string {
+	var apiKey = ""
+	if envApiKey, found := os.LookupEnv("USER_MODEL_METRICS_WEBHOOK_API_KEY"); found {
+		apiKey = strings.TrimSpace(envApiKey)
+	}
+	if len(apiKey) > 0 {
+		slog.Info("Using user model metrics webhook API key")
+	}
+	return apiKey
+}
+
 func initLogging(level slog.Level, logJson bool) {
 	var logger *slog.Logger
 	logOptions := &slog.HandlerOptions{
@@ -165,6 +189,8 @@ func main() {
 	var portHealth = getPortHealth()
 	var apiKeys = getApiKeys()
 	var preloadModels = getPreloadModels()
+	var userModelMetricsWebhookUrl = getUserModelMetricsWebhookUrl()
+	var userModelMetricsWebhookApiKey = getUserModelMetricsWebhookApiKey()
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
@@ -175,6 +201,7 @@ func main() {
 
 	serverHandler := NewServerHandler(apiKeys, preloadModels)
 	serverHandler.SetUpstreamURL(backendURL)
+	serverHandler.SetUserModelMetricsWebhook(userModelMetricsWebhookUrl, userModelMetricsWebhookApiKey)
 
 	serverHandlerFuncs := make(map[string]func(http.ResponseWriter, *http.Request))
 	serverHandlerFuncs["/"] = serverHandler.ServeHttpProxy

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -28,7 +30,9 @@ type ServerHandler struct {
 	preloadModels      []string
 	preloadModelStatus PreloadModelStatus
 
-	upstreamBaseURL *url.URL
+	upstreamBaseURL               *url.URL
+	userModelMetricsWebhookUrl    string
+	userModelMetricsWebhookApiKey string
 }
 
 // NewServerHandler will create a new server
@@ -50,6 +54,18 @@ func (s *ServerHandler) GetUpstreamURL() *url.URL {
 	return s.upstreamBaseURL
 }
 
+// SetUpstreamURL will set base url of upstream on server
+func (s *ServerHandler) SetUserModelMetricsWebhook(url string, apiKey string) {
+	s.userModelMetricsWebhookUrl = url
+	s.userModelMetricsWebhookApiKey = apiKey
+
+	apiKeyUsage := "w/o API key"
+	if len(s.userModelMetricsWebhookApiKey) > 0 {
+		apiKeyUsage = "w/ API key"
+	}
+	slog.Info(fmt.Sprintf("User model metrics webhook at %s %s", s.userModelMetricsWebhookUrl, apiKeyUsage))
+}
+
 // ServeHttpProxy will be called by the http server to handle a request that should be proxied to backend
 func (s *ServerHandler) ServeHttpProxy(w http.ResponseWriter, r *http.Request) {
 	backendURL := s.GetUpstreamURL()
@@ -63,7 +79,7 @@ func (s *ServerHandler) ServeHttpProxy(w http.ResponseWriter, r *http.Request) {
 		"proto", r.Proto)
 	logger.Info("Handle request")
 	if s.authRequestHandle(w, r) {
-		upstreamHandler := NewProxyHandler(backendURL, logger)
+		upstreamHandler := NewProxyHandler(backendURL, s.forwardUserModelMetrics, logger)
 		upstreamHandler.ProxyRequest(w, r)
 	}
 }
@@ -204,6 +220,43 @@ func (s *ServerHandler) PreLoadModels(ctx context.Context) {
 
 	s.preloadModelStatus = Preloaded
 	slog.Info(fmt.Sprintf("Loaded %d models...", len(s.preloadModels)))
+}
+
+// forwardUserModelMetrics forwards the give ollama usage metrics to selected webhook.
+func (s *ServerHandler) forwardUserModelMetrics(userModelMetrics UserModelMetrics) {
+	if len(s.userModelMetricsWebhookUrl) == 0 {
+		slog.Debug("Skip forwarding user model metrics: no webhook url")
+		return
+	}
+
+	buf, err := json.Marshal(userModelMetrics)
+	if err != nil {
+		slog.Error("Failed to forward user model metrics: marshal failed", "webhook", s.userModelMetricsWebhookUrl, "error", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", s.userModelMetricsWebhookUrl, bytes.NewReader(buf))
+	if err != nil {
+		slog.Error("Failed to forward user model metrics: request failed", "webhook", s.userModelMetricsWebhookUrl, "error", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if len(s.userModelMetricsWebhookApiKey) > 0 {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.userModelMetricsWebhookApiKey))
+	}
+
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Error("Failed to forward user model metrics: POST failed", "webhook", s.userModelMetricsWebhookUrl, "error", err)
+	} else if (response.StatusCode / 100) != 2 {
+		slog.Error("Failed to forward user model metrics: POST indicates failure", "webhook", s.userModelMetricsWebhookUrl, "status", response.StatusCode)
+	} else {
+		slog.Info("Forwarded user model metrics to", "webhook", s.userModelMetricsWebhookUrl)
+	}
+	if response != nil {
+		response.Body.Close()
+	}
 }
 
 // requireApiKeyAuthorization checks if authentication with API key is required.
