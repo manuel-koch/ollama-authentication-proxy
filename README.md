@@ -38,3 +38,11 @@ sequenceDiagram
     Note over ollama-authentication-proxy, user: Reply with data from ollama
     ollama-authentication-proxy ->> user: response
 ```
+
+# Testing
+
+```shell
+curl -vL -X POST \
+     --data '{"model":"qwen3:0.6b", "messages": [{"role":"user", "content":"Why is the sky blue?"}]}' \
+     http://localhost:80/api/chat
+```
