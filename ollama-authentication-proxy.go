@@ -207,13 +207,15 @@ func main() {
 	var serverPing *Server = nil
 	if port != portHealth {
 		pingFuncs := make(map[string]func(http.ResponseWriter, *http.Request))
-		pingFuncs["/ping"] = serverHandler.ServeHttpPing
+		pingFuncs["GET /ping"] = serverHandler.ServeHttpPing
+		pingFuncs["GET /ping/"] = serverHandler.ServeHttpPing
 		serverPing = NewServer(ctx, host, portHealth, pingFuncs)
 		go serverPing.Run()
 		pingUrl := fmt.Sprintf("http://%s", serverPing.Addr)
 		slog.Info(fmt.Sprintf("Ping listening at %s", pingUrl))
 	} else {
-		serverHandlerFuncs["/ping"] = serverHandler.ServeHttpPing
+		serverHandlerFuncs["GET /ping"] = serverHandler.ServeHttpPing
+		serverHandlerFuncs["GET /ping/"] = serverHandler.ServeHttpPing
 	}
 
 	server := NewServer(ctx, host, port, serverHandlerFuncs)
