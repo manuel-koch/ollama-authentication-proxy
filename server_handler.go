@@ -197,7 +197,7 @@ func (s *ServerHandler) PreLoadModels(ctx context.Context) {
 
 	s.preloadModelStatus = InProgress
 
-	slog.Info(fmt.Sprintf("Loading %d models...", len(s.preloadModels)))
+	slog.Info(fmt.Sprintf("Preloading %d models...", len(s.preloadModels)))
 	client := api.NewClient(s.upstreamBaseURL, http.DefaultClient)
 	for _, model := range s.preloadModels {
 		pullRequest := &api.PullRequest{
@@ -228,7 +228,21 @@ func (s *ServerHandler) PreLoadModels(ctx context.Context) {
 	}
 
 	s.preloadModelStatus = Preloaded
-	slog.Info(fmt.Sprintf("Loaded %d models...", len(s.preloadModels)))
+	slog.Info(fmt.Sprintf("Preloaded %d models", len(s.preloadModels)))
+
+	listResponse, err := client.List(ctx)
+	if err != nil {
+		slog.Error("Failed to list current models", "error", err)
+	} else {
+		var totalSize int64 = 0
+		for _, model := range listResponse.Models {
+			totalSize += model.Size
+			sizeGB := float64(model.Size) / 1024.0 / 1024.0 / 1024.0
+			slog.Info(fmt.Sprintf("Found model %s, size %0.1fGB", model.Name, sizeGB))
+		}
+		totalSizeGB := float64(totalSize) / 1024.0 / 1024.0 / 1024.0
+		slog.Info(fmt.Sprintf("Found %d loaded models with total size %0.1fGB", len(listResponse.Models), totalSizeGB))
+	}
 }
 
 // forwardUserModelMetrics forwards the give ollama usage metrics to selected webhook.
