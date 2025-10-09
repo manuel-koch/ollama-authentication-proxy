@@ -23,7 +23,7 @@ debug-ollama-authentication-proxy:: ollama-authentication-proxy
 # See https://docs.docker.com/build/building/multi-platform/
 create_pipeline_builder_context::
 	@docker buildx ls | grep -E "^$(DOCKER_BUILDX_BUILDER)(\*?)\s+$(DOCKER_BUILDX_DRIVER)" >/dev/null \
-	   || docker buildx create --name $(DOCKER_BUILDX_BUILDER) --driver $(DOCKER_BUILDX_DRIVER) --bootstrap
+		|| docker buildx create --name $(DOCKER_BUILDX_BUILDER) --driver $(DOCKER_BUILDX_DRIVER) --bootstrap
 	@docker buildx use $(DOCKER_BUILDX_BUILDER)
 
 # Find out what platform/architecture you can build.
@@ -35,23 +35,28 @@ show_pipeline_image_builder_platforms:: create_pipeline_builder_context
 # The built image will be imported from builder-context into current docker-context ( `--output=type=docker` ).
 LOAD_IMAGE := false # whether to load the built image into current docker-context ( this only works if you build for a single platform/architecture ! )
 PUSH_IMAGE := false # whether to push the built image to docker registry
+NO_CACHE := false # whether to disable cache during docker build
 build-image:: create_pipeline_builder_context
 	docker buildx build \
-      --builder $(DOCKER_BUILDX_BUILDER) \
-      --platform=$(DOCKER_BUILDX_PLATFORMS) \
-      $(shell $(LOAD_IMAGE) && echo --output=type=docker) \
-      --output=type=image \
-      --debug \
-      --progress plain \
-      $(shell $(PUSH_IMAGE) && echo --push) \
-      --build-arg GOLANG_VERSION=$(IMAGE_GOLANG_VERSION) \
-      --build-arg OLLAMA_VERSION=$(IMAGE_OLLAMA_VERSION) \
-      --label org.opencontainers.image.title="ollama-authentication-proxy" \
-      --label org.opencontainers.image.description="Ollama ($(IMAGE_OLLAMA_VERSION)) behind authentication proxy" \
-      --label org.opencontainers.image.documentation="https://github.com/manuel-koch/ollama-authentication-proxy" \
-      -t $(IMAGE_TAGGED) \
-      -t $(IMAGE_LATEST) \
-      -f $(THIS_DIR)/Dockerfile .
+		--builder $(DOCKER_BUILDX_BUILDER) \
+		--platform=$(DOCKER_BUILDX_PLATFORMS) \
+		$(shell $(NO_CACHE) && echo --no-cache) \
+		$(shell $(LOAD_IMAGE) && echo --output=type=docker) \
+		--output=type=image \
+		--debug \
+		--progress plain \
+		$(shell $(PUSH_IMAGE) && echo --push) \
+		--build-arg GOLANG_VERSION=$(IMAGE_GOLANG_VERSION) \
+		--build-arg OLLAMA_VERSION=$(IMAGE_OLLAMA_VERSION) \
+		--label org.opencontainers.image.title="ollama-authentication-proxy" \
+		--label org.opencontainers.image.description="Ollama ($(IMAGE_OLLAMA_VERSION)) behind authentication proxy" \
+		--label org.opencontainers.image.documentation="https://github.com/manuel-koch/ollama-authentication-proxy" \
+		-t $(IMAGE_TAGGED) \
+		-t $(IMAGE_LATEST) \
+		-f $(THIS_DIR)/Dockerfile .
+	@echo
+	@echo "Built docker image: $(IMAGE_TAGGED)"
+	@$(PUSH_IMAGE) && echo "Pushed docker image: $(IMAGE_TAGGED)"
 
 # build docker image for arm64 and load it into local docker-context
 build-image-arm64:: LOAD_IMAGE=true
@@ -61,22 +66,22 @@ build-image-arm64:: build-image
 
 run-image::
 	docker run --rm \
-      --name $(CONTAINER_NAME) \
-      -v $(THIS_DIR)/ollama:/root/.ollama \
-      -p $(LOCAL_PORT):80 \
-      -e "AUTHORIZATION_APIKEY=my-private-api-key" \
-      -e "PRELOAD_MODEL=qwen3:0.6b" \
-      -e "OLLAMA_HOST=127.0.0.1:11434" \
-      $(IMAGE_TAGGED)
+		--name $(CONTAINER_NAME) \
+		-v $(THIS_DIR)/ollama:/root/.ollama \
+		-p $(LOCAL_PORT):80 \
+		-e "AUTHORIZATION_APIKEY=my-private-api-key" \
+		-e "PRELOAD_MODEL=qwen3:0.6b" \
+		-e "OLLAMA_HOST=127.0.0.1:11434" \
+		$(IMAGE_TAGGED)
 
 run-image-interactive::
 	docker run -it --rm \
-      --name $(CONTAINER_NAME) \
-      -v $(THIS_DIR)/ollama:/root/.ollama \
-      -p $(LOCAL_PORT):80 \
-      -e "AUTHORIZATION_APIKEY=my-private-api-key" \
-      -e "PRELOAD_MODEL=qwen3:0.6b" \
-      -e "OLLAMA_HOST=127.0.0.1:11434" \
-      --entrypoint "sh" \
-      $(IMAGE_TAGGED) \
-      -i
+		--name $(CONTAINER_NAME) \
+		-v $(THIS_DIR)/ollama:/root/.ollama \
+		-p $(LOCAL_PORT):80 \
+		-e "AUTHORIZATION_APIKEY=my-private-api-key" \
+		-e "PRELOAD_MODEL=qwen3:0.6b" \
+		-e "OLLAMA_HOST=127.0.0.1:11434" \
+		--entrypoint "sh" \
+		$(IMAGE_TAGGED) \
+		-i
