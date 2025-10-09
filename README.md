@@ -26,6 +26,8 @@ Use any env-var that starts with `PRELOAD_MODEL` to include the selected model f
 - PRELOAD_MODEL=gemma3n:e4b
 - PRELOAD_MODEL_1=devstral:24b
 
+# Example request flow
+
 ```mermaid
 sequenceDiagram
     actor user
