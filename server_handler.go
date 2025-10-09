@@ -31,6 +31,7 @@ type ServerHandler struct {
 	preloadModelStatus PreloadModelStatus
 
 	upstreamBaseURL               *url.URL
+	lastSuccessfulPingTime        time.Time
 	userModelMetricsWebhookUrl    string
 	userModelMetricsWebhookApiKey string
 }
@@ -99,7 +100,7 @@ func (s *ServerHandler) ServeHttpPing(w http.ResponseWriter, r *http.Request) {
 		if s.isUpstreamRunning() {
 			switch s.preloadModelStatus {
 			case Unknown:
-				logger.Info("Upstream available, preloading unknown")
+				logger.Warn("Upstream available, preloading unknown")
 				w.WriteHeader(http.StatusNoContent)
 				w.Write([]byte("{\"status\": \"Model preload not started yet\"}"))
 			case InProgress:
@@ -107,7 +108,11 @@ func (s *ServerHandler) ServeHttpPing(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 				w.Write([]byte("{\"status\": \"Model preload in progress\"}"))
 			case Preloaded:
-				logger.Info("Upstream is available, preloading done")
+				logFunc := logger.Debug
+				if time.Since(s.lastSuccessfulPingTime) > 60*time.Second {
+					logFunc = logger.Info
+				}
+				logFunc("Upstream is available, preloading done")
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("{\"status\": \"Models preloaded\"}"))
 			}
@@ -170,7 +175,10 @@ func (s *ServerHandler) isUpstreamRunning() bool {
 	isSuccessStatus := resp.StatusCode/100 == 2
 	if !isSuccessStatus {
 		slog.Error("Failed to ping upstream", "status", resp.StatusCode)
+	} else {
+		s.lastSuccessfulPingTime = time.Now()
 	}
+
 	return isSuccessStatus
 }
 
